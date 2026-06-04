@@ -1,37 +1,44 @@
 """
-OpenRouter Vision Analyzer — Smart Blind-Assistance Glasses
-============================================================
-Upgraded to use Google Gemini Flash for full SCENE UNDERSTANDING,
-not just obstacle detection. Runs every 3 seconds always.
+Google Gemini Vision Analyzer — Smart Blind-Assistance Glasses
+==============================================================
+Uses google-genai SDK (current, non-deprecated).
+Get your FREE API key at: https://aistudio.google.com/app/apikey
+Add to .env:  GOOGLE_API_KEY=your_key_here
+
+Free tier: 1,500 requests/day, 15 RPM — plenty for real-time use.
 """
 
 import os
 import re
 import json
+import base64
 import logging
 from typing import Dict, Any
 from dotenv import load_dotenv
-from openai import OpenAI
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-# ── Client ────────────────────────────────────────────────────────────────────
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-openrouter_client  = None
+# ── Google Gemini client (new SDK) ────────────────────────────────────────────
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+_genai_client  = None
 
-if OPENROUTER_API_KEY:
+if GOOGLE_API_KEY:
     try:
-        openrouter_client = OpenAI(
-            api_key=OPENROUTER_API_KEY,
-            base_url="https://openrouter.ai/api/v1",
-        )
+        from google import genai
+        from google.genai import types as genai_types
+        _genai_client = genai.Client(api_key=GOOGLE_API_KEY)
+        print("[AI] ✅ Google Gemini Flash ready  (google-genai SDK)")
     except Exception as e:
-        logger.error(f"OpenRouter init failed: {e}")
+        print(f"[AI] ❌ Gemini init failed: {e}")
+else:
+    print("[AI] ⚠️  GOOGLE_API_KEY not set in .env")
+    print("[AI]    Get a FREE key at: https://aistudio.google.com/app/apikey")
+    print("[AI]    Then add to .env:  GOOGLE_API_KEY=AIza...")
 
-DEFAULT_MODEL = "google/gemini-flash-1.5"
+GEMINI_MODEL = "gemini-2.0-flash"   # fast, free, vision-capable
 
-# ── System prompt — scene UNDERSTANDING, not just obstacle ping ───────────────
+# ── System prompt ─────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are the AI vision system for smart glasses worn by a COMPLETELY BLIND person who is actively walking.
 
 They cannot see anything at all. Your guidance is their only way to navigate safely.
@@ -40,56 +47,38 @@ OUTPUT: ONLY this JSON object. No other text. No markdown. No explanation.
 {
   "direction": "CLEAR or STOP or LEFT or RIGHT or DANGER",
   "obstacle": "specific object name (e.g. chair, person, wall, table, door, car)",
-  "distance": "estimated distance as a number in meters (e.g. 1.5)",
+  "distance": 1.5,
   "message": "spoken instruction, max 8 words, specific and urgent",
   "scene": "one sentence describing the full environment"
 }
 
 HOW TO ESTIMATE DISTANCE FROM THE IMAGE:
-- Average adult: 1.7m tall. If they fill 50% of frame height → ~1.7m. 20% → ~4m. 80% → ~1m.
+- Average adult: 1.7m tall. If they fill 50% of frame → ~1.7m. 20% → ~4m. 80% → ~1m.
 - Chair: 0.9m tall. Table: 0.75m. Car: 1.5m tall.
-- If object fills bottom half of frame → under 1 meter — VERY CLOSE
-- If object is small and far in background → more than 3 meters
+- Object fills bottom half of frame → under 1 meter — VERY CLOSE
+- Object small/far in background → more than 3 meters
 - Use shadows, perspective lines, and relative sizes for depth cues
 
 DIRECTION RULES (apply strictly):
 - Center path clearly blocked → STOP
 - Close obstacle on LEFT third of frame, right side clear → RIGHT
-- Close obstacle on RIGHT third of frame, left side clear → LEFT  
+- Close obstacle on RIGHT third of frame, left side clear → LEFT
 - Object within 0.5m or filling >60% of frame → DANGER
 - No obstacles within 2m → CLEAR
 
 OBSTACLE: Name the SPECIFIC closest object blocking the path.
-- Good: "wooden chair", "glass door", "parked car", "person in black jacket"
-- Bad: "object", "thing", "something"
-
-DISTANCE: Your best estimate in meters as a decimal number.
-- Be specific: 0.8, 1.5, 2.3 — not "close" or "far"
-
-MESSAGE: Spoken aloud to the blind person. Max 8 words. Be specific and urgent.
-- Good: "Chair 1 meter ahead, step right"  
-- Good: "Person blocking path, stop now"
-- Good: "Clear path, continue forward safely"
-- Bad: "Obstacle detected" (too vague)
-- Bad: "Be careful" (no actionable guidance)
-
-SCENE: Full one-sentence description of the environment for context.
-Examples:
-- "Indoor office hallway with chairs on the left and a glass wall ahead"
-- "Outdoor sidewalk with a parked car on the right and clear path ahead"
-- "Kitchen with a table in the center and person standing near the counter"
-"""
+DISTANCE: Your best estimate in meters as a decimal number (e.g. 1.5).
+MESSAGE: Spoken aloud. Max 8 words. Specific and urgent.
+SCENE: One sentence describing the full environment."""
 
 
 # ── JSON extraction with fallbacks ────────────────────────────────────────────
 def _extract_json(raw: str) -> Dict[str, Any]:
     raw = raw.strip()
-    # Direct parse
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
         pass
-    # Strip ```json ... ```
     for pat in [r'```json\s*(.*?)\s*```', r'```\s*(.*?)\s*```']:
         m = re.search(pat, raw, re.DOTALL)
         if m:
@@ -97,7 +86,6 @@ def _extract_json(raw: str) -> Dict[str, Any]:
                 return json.loads(m.group(1))
             except json.JSONDecodeError:
                 pass
-    # First { ... } block
     m = re.search(r'\{.*?\}', raw, re.DOTALL)
     if m:
         try:
@@ -107,86 +95,79 @@ def _extract_json(raw: str) -> Dict[str, Any]:
     raise ValueError(f"No valid JSON in: {raw[:300]}")
 
 
-# ── Main analysis function ────────────────────────────────────────────────────
+# ── Main analysis function ─────────────────────────────────────────────────────
 async def analyze_image_with_vision(
     base64_image: str,
     distance: float = 2.0,
-    model: str = DEFAULT_MODEL,
+    model: str = GEMINI_MODEL,
 ) -> Dict[str, Any]:
     """
-    Send image to Gemini for scene understanding and navigation guidance.
-    Now returns scene description in addition to navigation command.
+    Send image to Google Gemini Flash for scene understanding and navigation.
+    Free tier: 1,500 req/day, 15 RPM.
     """
     _default = {
         "direction": "STOP",
         "obstacle":  "unknown",
-        "distance":  str(round(distance, 1)),
-        "message":   "Cannot analyze — stop to be safe",
+        "distance":  round(distance, 1),
+        "message":   "Cannot analyze — proceed with caution",
         "scene":     "Scene analysis unavailable",
     }
 
-    if not openrouter_client:
+    if not _genai_client:
+        print("[AI] No Gemini client — add GOOGLE_API_KEY to .env")
         return _default
 
     try:
-        image_url = f"data:image/jpeg;base64,{base64_image}"
+        from google import genai
+        from google.genai import types as genai_types
 
-        response = openrouter_client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": (
-                                f"Analyze this image. "
-                                f"Ultrasonic sensor distance: {distance:.2f}m (use as reference if available, otherwise estimate from image). "
-                                f"Output ONLY the JSON object."
-                            )
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": image_url},
-                        }
-                    ]
-                }
-            ],
-            max_tokens=220,
-            temperature=0.1,
+        img_bytes = base64.b64decode(base64_image)
+
+        prompt = (
+            f"{SYSTEM_PROMPT}\n\n"
+            f"Sensor distance hint: {distance:.1f}m. "
+            f"Output ONLY the JSON object."
         )
 
-        content = response.choices[0].message.content or ""
+        response = _genai_client.models.generate_content(
+            model=model,
+            contents=[
+                prompt,
+                genai_types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"),
+            ],
+            config=genai_types.GenerateContentConfig(
+                temperature=0.1,
+                max_output_tokens=250,
+            ),
+        )
+
+        content = response.text or ""
 
         print(f"\n{'─'*50}")
         print(f"[AI] model: {model}")
-        print(f"[AI] raw:   {content}")
+        print(f"[AI] raw:   {content[:200]}")
         print(f"{'─'*50}\n")
 
         if not content.strip():
-            print("[AI] Empty response!")
             return _default
 
-        parsed = _extract_json(content)
-
+        parsed    = _extract_json(content)
         direction = str(parsed.get("direction", "STOP")).upper().strip()
         obstacle  = str(parsed.get("obstacle",  "unknown")).strip()
-        dist_str  = str(parsed.get("distance",  str(round(distance, 1)))).strip()
+        dist_val  = parsed.get("distance", distance)
         message   = str(parsed.get("message",   "Obstacle ahead")).strip()
         scene     = str(parsed.get("scene",     "")).strip()
 
         if direction not in {"CLEAR", "STOP", "LEFT", "RIGHT", "DANGER"}:
             direction = "STOP"
 
-        # Truncate message to 8 words
         words = message.split()
         if len(words) > 8:
             message = " ".join(words[:8])
 
-        # Parse distance string to float
         try:
-            dist_float = float(re.search(r'\d+\.?\d*', dist_str).group())
+            dist_float = float(dist_val) if isinstance(dist_val, (int, float)) else \
+                         float(re.search(r'\d+\.?\d*', str(dist_val)).group())
         except Exception:
             dist_float = distance
 
@@ -201,20 +182,26 @@ async def analyze_image_with_vision(
         return result
 
     except Exception as e:
-        print(f"[AI] ❌ Error: {e}")
+        err = str(e)
+        print(f"[AI] ❌ Error: {err}")
+        if "quota" in err.lower() or "429" in err:
+            print("[AI]    Rate limit — free tier: 15 req/min, 1500/day")
+        elif "api_key" in err.lower() or "401" in err or "403" in err:
+            print("[AI]    Bad API key — check GOOGLE_API_KEY in .env")
         return _default
 
 
 async def test_openrouter_connection() -> bool:
-    if not openrouter_client:
+    """Tests Gemini connection."""
+    if not _genai_client:
         return False
     try:
-        r = openrouter_client.chat.completions.create(
-            model=DEFAULT_MODEL,
-            messages=[{"role": "user", "content": "Reply OK only."}],
-            max_tokens=5,
+        from google import genai
+        r = _genai_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents="Reply OK only.",
         )
-        return bool(r.choices[0].message.content)
+        return bool(r.text)
     except Exception as e:
-        logger.error(f"Connection test failed: {e}")
+        logger.error(f"Gemini test failed: {e}")
         return False

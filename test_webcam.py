@@ -194,21 +194,21 @@ def depth_navigate(depth_01: np.ndarray) -> tuple:
     dist_r = disp_to_m(dr)
     min_dist = min(dist_l, dist_c, dist_r)
 
-    # Decision tree
-    if dc > 0.82:
+    # Decision tree — slightly more sensitive thresholds
+    if dc > 0.75:
         return "DANGER", dist_c, f"Very close obstacle! {dist_c:.1f}m", (dl, dc, dr)
 
-    if dc > 0.60:
-        if dl < dr - 0.10:
+    if dc > 0.52:
+        if dl < dr - 0.08:
             return "LEFT",  dist_c, f"Obstacle {dist_c:.1f}m — go left",  (dl, dc, dr)
-        if dr < dl - 0.10:
+        if dr < dl - 0.08:
             return "RIGHT", dist_c, f"Obstacle {dist_c:.1f}m — go right", (dl, dc, dr)
         return "STOP", dist_c, f"Stop — blocked at {dist_c:.1f}m", (dl, dc, dr)
 
-    if dc > 0.40:
-        if dl < dr - 0.08:
+    if dc > 0.34:
+        if dl < dr - 0.07:
             return "LEFT",  dist_c, f"Caution {dist_c:.1f}m — lean left",  (dl, dc, dr)
-        if dr < dl - 0.08:
+        if dr < dl - 0.07:
             return "RIGHT", dist_c, f"Caution {dist_c:.1f}m — lean right", (dl, dc, dr)
         return "STOP", dist_c, f"Slow — {dist_c:.1f}m ahead", (dl, dc, dr)
 
@@ -275,12 +275,11 @@ def detect_hog(frame) -> list:
     return results
 
 
-def detect_depth_blobs(frame_shape, max_dist_m: float = 2.5) -> list:
+def detect_depth_blobs(frame_shape, top_pct: float = 28.0) -> list:
     """
-    Find close objects from the depth map using connected-component analysis.
-    Draws boxes around ANYTHING closer than max_dist_m — chairs, walls,
-    tables, cars, people — works without needing YOLO or HOG.
-    Returns list of {label, conf, box, distance, source}.
+    Find close objects: pixels in the TOP top_pct% of depth values (closest).
+    Uses adaptive percentile threshold so it works regardless of scene scale.
+    Returns bounding boxes around any compact close region.
     """
     dm = get_depth_snapshot()
     if dm is None:
@@ -288,12 +287,13 @@ def detect_depth_blobs(frame_shape, max_dist_m: float = 2.5) -> list:
 
     h, w = frame_shape[:2]
     frame_area = h * w
-
-    # Disparity threshold: what disp value ≥ max_dist_m object?
-    # disp_to_m(d) = 0.5/(d+0.08) → d = 0.5/max_dist_m - 0.08
-    disp_thr = max(0.05, 0.5 / max_dist_m - 0.08)
-
     dm_full = cv2.resize(dm, (w, h))
+
+    # ✅ FIXED: adaptive threshold — find pixels in top 28% closest
+    # (percentile 72 = only the closest 28% of the scene passes)
+    disp_thr = float(np.percentile(dm_full, 100 - top_pct))
+    disp_thr = max(disp_thr, 0.30)   # never threshold below 0.30 (avoid noise)
+
     mask = (dm_full >= disp_thr).astype(np.uint8) * 255
 
     # Morphological cleanup
@@ -308,19 +308,21 @@ def detect_depth_blobs(frame_shape, max_dist_m: float = 2.5) -> list:
     for i in range(1, n_labels):
         area = stats[i, cv2.CC_STAT_AREA]
         frac = area / frame_area
-        if frac < 0.012 or frac > 0.88:   # skip tiny noise and full-frame background
+        if frac < 0.025 or frac > 0.75:  # skip tiny specks and huge flat background
             continue
-        bw = stats[i, cv2.CC_STAT_WIDTH]
-        bh = stats[i, cv2.CC_STAT_HEIGHT]
-        if bh < 30 or bw / max(bh, 1) > 7:  # skip thin horizontal strips
+        bw_box = stats[i, cv2.CC_STAT_WIDTH]
+        bh_box = stats[i, cv2.CC_STAT_HEIGHT]
+        if bh_box < 40 or bw_box / max(bh_box, 1) > 6:  # skip thin horizontal strips
             continue
         x1 = stats[i, cv2.CC_STAT_LEFT]
         y1 = stats[i, cv2.CC_STAT_TOP]
-        x2, y2 = x1 + bw, y1 + bh
+        x2, y2 = x1 + bw_box, y1 + bh_box
 
         avg_disp = float(np.mean(dm_full[labels == i]))
-        dist_m   = round(min(5.0, max(0.2, 0.5 / (avg_disp + 0.08))), 2)
-        conf     = min(0.95, frac * 8)
+        # avg_disp is already 0-1 (normalized per frame)
+        # Map: 1.0 disparity → ~0.3m  |  0.3 disparity → ~3m
+        dist_m = round(max(0.3, min(5.0, 0.3 + (1.0 - avg_disp) * 4.5)), 2)
+        conf   = min(0.95, frac * 6)
 
         results.append({
             "label":    "obstacle",
@@ -331,7 +333,51 @@ def detect_depth_blobs(frame_shape, max_dist_m: float = 2.5) -> list:
         })
 
     results.sort(key=lambda d: d["distance"])
-    return results[:6]   # keep at most 6 closest blobs
+    return results[:6]
+
+
+def detect_edges_fallback(frame) -> list:
+    """
+    Fallback detector using Canny edges + contours.
+    Works when depth model is unavailable or warming up.
+    Detects large solid objects by their edges — not lighting-dependent.
+    """
+    h, w = frame.shape[:2]
+    frame_area = h * w
+
+    gray  = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    blur  = cv2.GaussianBlur(gray, (7, 7), 0)
+    edges = cv2.Canny(blur, 30, 100)
+
+    # Dilate edges to fill objects, then find contours
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (20, 20))
+    dilated = cv2.dilate(edges, kernel, iterations=2)
+
+    cnts, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    results = []
+    for cnt in cnts:
+        area = cv2.contourArea(cnt)
+        frac = area / frame_area
+        if frac < 0.04 or frac > 0.80:
+            continue
+        x, y, bw, bh = cv2.boundingRect(cnt)
+        if bh < 60:
+            continue
+        # Estimate distance by vertical position: lower = closer
+        # Object bottom at 90% of frame height → ~0.5m; at 50% → ~2m
+        bottom_frac = (y + bh) / h
+        dist_m = round(max(0.3, min(4.0, 0.5 + (1.0 - bottom_frac) * 4.0)), 2)
+        results.append({
+            "label":    "obstacle",
+            "conf":     min(0.7, frac * 4),
+            "box":      (x, y, x + bw, y + bh),
+            "distance": dist_m,
+            "source":   "edge",
+        })
+
+    results.sort(key=lambda d: d["distance"])
+    return results[:4]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -765,9 +811,13 @@ def main():
         if frame_n % HOG_EVERY == 0:
             hog_dets = detect_hog(frame)
 
-        # ── Depth-blob detection (every DEPTH_EVERY frames, uses depth map) ──
-        if DEPTH_AI_OK and dm is not None and frame_n % DEPTH_EVERY == 0:
-            depth_dets = detect_depth_blobs(frame.shape)
+        # ── Depth-blob detection + edge fallback ──────────────────────────
+        if frame_n % DEPTH_EVERY == 0:
+            if DEPTH_AI_OK and dm is not None:
+                depth_dets = detect_depth_blobs(frame.shape)
+            else:
+                # Edge fallback: always draws boxes even without depth AI
+                depth_dets = detect_edges_fallback(frame)
 
         # ── Merge: prefer HOG label for people, depth-blobs for everything else
         # Suppress depth blobs that heavily overlap with HOG people boxes

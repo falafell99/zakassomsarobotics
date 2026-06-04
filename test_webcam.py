@@ -275,6 +275,65 @@ def detect_hog(frame) -> list:
     return results
 
 
+def detect_depth_blobs(frame_shape, max_dist_m: float = 2.5) -> list:
+    """
+    Find close objects from the depth map using connected-component analysis.
+    Draws boxes around ANYTHING closer than max_dist_m — chairs, walls,
+    tables, cars, people — works without needing YOLO or HOG.
+    Returns list of {label, conf, box, distance, source}.
+    """
+    dm = get_depth_snapshot()
+    if dm is None:
+        return []
+
+    h, w = frame_shape[:2]
+    frame_area = h * w
+
+    # Disparity threshold: what disp value ≥ max_dist_m object?
+    # disp_to_m(d) = 0.5/(d+0.08) → d = 0.5/max_dist_m - 0.08
+    disp_thr = max(0.05, 0.5 / max_dist_m - 0.08)
+
+    dm_full = cv2.resize(dm, (w, h))
+    mask = (dm_full >= disp_thr).astype(np.uint8) * 255
+
+    # Morphological cleanup
+    k_c = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (25, 25))
+    k_o = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (10, 10))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k_c)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,  k_o)
+
+    n_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask)
+
+    results = []
+    for i in range(1, n_labels):
+        area = stats[i, cv2.CC_STAT_AREA]
+        frac = area / frame_area
+        if frac < 0.012 or frac > 0.88:   # skip tiny noise and full-frame background
+            continue
+        bw = stats[i, cv2.CC_STAT_WIDTH]
+        bh = stats[i, cv2.CC_STAT_HEIGHT]
+        if bh < 30 or bw / max(bh, 1) > 7:  # skip thin horizontal strips
+            continue
+        x1 = stats[i, cv2.CC_STAT_LEFT]
+        y1 = stats[i, cv2.CC_STAT_TOP]
+        x2, y2 = x1 + bw, y1 + bh
+
+        avg_disp = float(np.mean(dm_full[labels == i]))
+        dist_m   = round(min(5.0, max(0.2, 0.5 / (avg_disp + 0.08))), 2)
+        conf     = min(0.95, frac * 8)
+
+        results.append({
+            "label":    "obstacle",
+            "conf":     conf,
+            "box":      (x1, y1, x2, y2),
+            "distance": dist_m,
+            "source":   "depth",
+        })
+
+    results.sort(key=lambda d: d["distance"])
+    return results[:6]   # keep at most 6 closest blobs
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  COLOURS / HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -330,25 +389,42 @@ def draw_zone_bars(frame, zones, h, w):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
 
-def draw_hog_boxes(frame, detections):
+def draw_detections(frame, detections: list):
+    """
+    Draw colored bounding boxes for ALL detections (HOG people + depth blobs).
+    Color encodes distance: red=danger, orange=warning, yellow=caution, green=safe.
+    """
     font = cv2.FONT_HERSHEY_SIMPLEX
+    # Draw far objects first so close ones render on top
     for d in sorted(detections, key=lambda x: x["distance"], reverse=True):
         x1, y1, x2, y2 = d["box"]
         dist  = d["distance"]
+        label = d["label"]
         color = dist_color(dist)
         thick = 3 if dist < 0.8 else 2
+
+        # Semi-transparent fill for very close objects
+        if dist < 0.7:
+            ov = frame.copy()
+            cv2.rectangle(ov, (x1, y1), (x2, y2), color, -1)
+            cv2.addWeighted(ov, 0.14, frame, 0.86, 0, frame)
+
+        # Box + corner accents
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, thick)
-        L = 14
+        L = 16
         for px, py, dx, dy in [(x1,y1,1,1),(x2,y1,-1,1),(x1,y2,1,-1),(x2,y2,-1,-1)]:
             cv2.line(frame, (px, py), (px + dx*L, py), color, thick+1)
             cv2.line(frame, (px, py), (px, py + dy*L), color, thick+1)
-        tag = f"person  {dist:.1f}m"
-        (tw, th), _ = cv2.getTextSize(tag, font, 0.48, 1)
-        ov = frame.copy()
-        cv2.rectangle(ov, (x1, max(0, y1-th-8)), (x1+tw+8, y1), color, -1)
-        cv2.addWeighted(ov, 0.75, frame, 0.25, 0, frame)
-        cv2.putText(frame, tag, (x1+4, y1-4), font, 0.48, (10,10,10), 2)
-        cv2.putText(frame, tag, (x1+4, y1-4), font, 0.48, (255,255,255), 1)
+
+        # Label badge with distance
+        tag = f"{'⚠ ' if dist < 1.0 else ''}{label}  {dist:.1f} m"
+        (tw, th), bl = cv2.getTextSize(tag, font, 0.50, 1)
+        by1 = max(0, y1 - th - 10)
+        ov2 = frame.copy()
+        cv2.rectangle(ov2, (x1, by1), (x1 + tw + 10, y1), color, -1)
+        cv2.addWeighted(ov2, 0.80, frame, 0.20, 0, frame)
+        cv2.putText(frame, tag, (x1+5, y1-4), font, 0.50, (0,0,0),     2, cv2.LINE_AA)
+        cv2.putText(frame, tag, (x1+5, y1-4), font, 0.50, (255,255,255), 1, cv2.LINE_AA)
 
 
 def draw_direction_arrow(frame, cmd, w, h):
@@ -404,7 +480,7 @@ def draw_hud(frame, w, h, cmd, dist, obj, scene, ai_msg, status, fps, busy,
     panel(w-280, 0, w, 110)
     txt(f"FPS  {fps:5.1f}", w-268, 30, (220,220,220), 0.60)
     txt(f"Depth AI: {'✅' if depth_ok else '—'}", w-268, 56, (180,180,180), 0.44)
-    txt(f"HOG: {hog_n} person(s)", w-268, 80, (180,180,180), 0.44)
+    txt(f"Objects: {hog_n} detected", w-268, 80, (180,180,180), 0.44)
     s_col = (0,0,240) if status == "ERROR" else ((0,200,255) if busy else (120,120,120))
     txt(status, w-268, 104, s_col, 0.42)
 
@@ -641,8 +717,10 @@ def main():
     fps_count = 0
     fps_t     = time.time()
     frame_n   = 0
-    hog_dets  = []
-    last_cmd  = ""
+    hog_dets   = []
+    depth_dets = []
+    all_dets   = []
+    last_cmd   = ""
     depth_zones = (0.0, 0.0, 0.0)
 
     # Throttle: run HOG every N frames (slow), depth every M frames
@@ -683,17 +761,43 @@ def main():
         dm = get_depth_snapshot()
         depth_cmd, depth_dist, depth_msg, depth_zones = depth_navigate(dm)
 
-        # ── HOG detection (every HOG_EVERY frames) ───────────────────────────
-        if SHOW_HOG and frame_n % HOG_EVERY == 0:
+        # ── HOG person detection (every HOG_EVERY frames) ──────────────────
+        if frame_n % HOG_EVERY == 0:
             hog_dets = detect_hog(frame)
 
+        # ── Depth-blob detection (every DEPTH_EVERY frames, uses depth map) ──
+        if DEPTH_AI_OK and dm is not None and frame_n % DEPTH_EVERY == 0:
+            depth_dets = detect_depth_blobs(frame.shape)
+
+        # ── Merge: prefer HOG label for people, depth-blobs for everything else
+        # Suppress depth blobs that heavily overlap with HOG people boxes
+        merged_depth = []
+        for db in depth_dets:
+            dx1, dy1, dx2, dy2 = db["box"]
+            overlaps = False
+            for hp in hog_dets:
+                px1, py1, px2, py2 = hp["box"]
+                ix = max(0, min(dx2,px2) - max(dx1,px1))
+                iy = max(0, min(dy2,py2) - max(dy1,py1))
+                if ix*iy / max((dx2-dx1)*(dy2-dy1), 1) > 0.4:
+                    overlaps = True; break
+            if not overlaps:
+                merged_depth.append(db)
+        all_dets = hog_dets + merged_depth
+
         # ── Combined navigation decision ──────────────────────────────────────
-        # Use HOG distance if a person is close; otherwise use depth navigation
         best_person_dist = min((d["distance"] for d in hog_dets), default=5.0)
-        if best_person_dist < depth_dist and best_person_dist < 2.0:
+        best_blob_dist   = min((d["distance"] for d in depth_dets), default=5.0)
+        overall_best     = min(best_person_dist, best_blob_dist)
+
+        if best_person_dist <= best_blob_dist and best_person_dist < 2.0:
             final_cmd  = "STOP" if best_person_dist < 0.8 else depth_cmd
             final_dist = best_person_dist
             final_obj  = "person"
+        elif best_blob_dist < 2.0:
+            final_cmd  = depth_cmd
+            final_dist = best_blob_dist
+            final_obj  = "obstacle"
         else:
             final_cmd  = depth_cmd
             final_dist = depth_dist
@@ -757,8 +861,7 @@ def main():
         if SHOW_DEPTH and DEPTH_AI_OK:
             draw_depth_overlay(display)
 
-        if SHOW_HOG:
-            draw_hog_boxes(display, hog_dets)
+        draw_detections(display, all_dets)
 
         draw_zone_bars(display, depth_zones, h, w)
         draw_direction_arrow(display, cmd, w, h)

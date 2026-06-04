@@ -23,6 +23,7 @@ CONTROLS (click OpenCV window first):
   D → toggle depth heatmap overlay
   S → force AI call now
   H → toggle HOG person detection overlay
+  T → toggle TTS on/off
   Q / ESC → quit
 """
 
@@ -37,6 +38,13 @@ WEBCAM_FOV_DEG  = 70.0         # typical laptop webcam
 DEPTH_SIZE      = 308          # px — trade-off: 196=fast, 308=accurate, 518=best
 SHOW_DEPTH      = True         # D key toggles this
 SHOW_HOG        = True         # H key toggles this
+
+# ── TTS settings ─────────────────────────────────────────────────────────────
+TTS_ENABLED          = True    # T key toggles at runtime
+TTS_USE_ELEVENLABS   = True    # False = macOS 'say' (free, instant)
+ELEVENLABS_VOICE_ID  = "21m00Tcm4TlvDq8ikWAM"  # Rachel — clear, calm voice
+ELEVENLABS_MODEL     = "eleven_turbo_v2"         # fastest ElevenLabs model
+TTS_COOLDOWN_SEC     = 2.5     # min seconds between spoken messages
 
 # Pinhole camera: real-world heights for distance estimation (metres)
 REAL_HEIGHTS = {
@@ -72,6 +80,9 @@ try:
 except ImportError:
     _ORT_OK = False
     print("[WARN] onnxruntime not installed — depth AI disabled")
+
+import subprocess
+import queue as _queue
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  DEPTH ANYTHING V2  (monocular depth AI)
@@ -421,6 +432,89 @@ def draw_hud(frame, w, h, cmd, dist, obj, scene, ai_msg, status, fps, busy,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  TTS ENGINE
+# ══════════════════════════════════════════════════════════════════════════════
+_tts_queue      = _queue.Queue(maxsize=2)   # drop old messages if full
+_last_spoken_t  = 0.0
+_last_spoken_txt= ""
+
+def _tts_worker():
+    """Background thread: pull messages from queue and speak them."""
+    global _last_spoken_t, _last_spoken_txt
+
+    _el_client = None
+    if TTS_USE_ELEVENLABS:
+        try:
+            from elevenlabs.client import ElevenLabs
+            _key = os.getenv("ELEVENLABS_API_KEY", "")
+            if _key:
+                _el_client = ElevenLabs(api_key=_key)
+                print("[TTS] ElevenLabs client ready  ✅")
+            else:
+                print("[TTS] ELEVENLABS_API_KEY not set — falling back to macOS say")
+        except Exception as e:
+            print(f"[TTS] ElevenLabs init failed ({e}) — falling back to macOS say")
+
+    while True:
+        try:
+            text = _tts_queue.get(timeout=1)
+        except _queue.Empty:
+            continue
+        if text is None:   # sentinel to stop thread
+            break
+        try:
+            if _el_client:
+                # ElevenLabs streaming
+                from elevenlabs import stream as el_stream
+                audio = _el_client.text_to_speech.convert(
+                    text=text,
+                    voice_id=ELEVENLABS_VOICE_ID,
+                    model_id=ELEVENLABS_MODEL,
+                    output_format="mp3_22050_32",
+                )
+                el_stream(audio)
+            else:
+                # macOS built-in TTS (free, instant)
+                subprocess.run(["say", "-r", "175", text],
+                               capture_output=True, timeout=10)
+        except Exception as e:
+            print(f"[TTS] speak error: {e}")
+            try:
+                subprocess.run(["say", text], capture_output=True, timeout=8)
+            except Exception:
+                pass
+        _tts_queue.task_done()
+
+# Start TTS worker thread
+_tts_thread = threading.Thread(target=_tts_worker, daemon=True, name="TTS")
+_tts_thread.start()
+
+
+def speak(text: str, force: bool = False):
+    """
+    Queue a spoken message. Drops duplicates and respects cooldown.
+    Set force=True to bypass cooldown (e.g. for DANGER alerts).
+    """
+    global _last_spoken_t, _last_spoken_txt
+    if not TTS_ENABLED:
+        return
+    now = time.time()
+    # Skip if same message was just spoken
+    if text == _last_spoken_txt and not force:
+        return
+    # Skip if too recent (unless forced)
+    if not force and (now - _last_spoken_t) < TTS_COOLDOWN_SEC:
+        return
+    _last_spoken_t   = now
+    _last_spoken_txt = text
+    # Non-blocking: drop if queue is full (previous message still playing)
+    try:
+        _tts_queue.put_nowait(text)
+    except _queue.Full:
+        pass   # skip this message rather than block
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  SHARED STATE
 # ══════════════════════════════════════════════════════════════════════════════
 _lock = threading.Lock()
@@ -478,6 +572,10 @@ def call_api(frame_to_send: np.ndarray, dist_hint: float):
             state["last_api_time"] = time.time()
         print(f"[AI] ✅  cmd={cmd}  obj={obj}  dist={ai_dist}m  msg={msg}")
         print(f"[AI] 📷  scene: {scn}")
+        # ── Speak the AI guidance out loud ────────────────────────────────────
+        if msg:
+            force_speak = cmd in ("DANGER", "STOP")
+            speak(msg, force=force_speak)
     except Exception as e:
         print(f"[API] Error: {e}")
         with _lock:
@@ -512,7 +610,9 @@ def startup_print(cap):
     print("  • AI: Gemini estimates distance from visual cues in image")
     print("  • Combined: weighted average for best accuracy")
     print()
-    print("  CONTROLS:  D=depth overlay  H=HOG boxes  S=force AI  Q=quit")
+    tts_mode = "ElevenLabs" if TTS_USE_ELEVENLABS else "macOS say (free)"
+    print(f"  TTS voice:         {'✅ ' + tts_mode if TTS_ENABLED else '❌ disabled (T to enable)'}")
+    print("  CONTROLS:  D=depth overlay  H=HOG boxes  S=force AI  T=TTS  Q=quit")
     print("═"*64 + "\n")
 
 
@@ -548,11 +648,14 @@ def main():
     # Throttle: run HOG every N frames (slow), depth every M frames
     HOG_EVERY   = 5   # HOG at ~6fps when main loop is 30fps
     DEPTH_EVERY = 3   # depth thread trigger (model itself throttles via flag)
+    prev_cmd    = ""  # track command changes for TTS
 
     with _lock:
         state["status"]     = "IDLE"
         state["command"]    = "CLEAR"
         state["ai_message"] = "Initializing…"
+
+    speak("Smart glasses ready. Scanning your surroundings.")
 
     while True:
         ret, frame = cap.read()
@@ -605,6 +708,21 @@ def main():
                 state["distance"] = final_dist
                 if api_age > 8.0:
                     state["ai_message"] = f"[local] {depth_msg}"
+
+        # ── Speak on LOCAL navigation change (when AI hasn't updated recently) ─
+        with _lock:
+            cur_cmd = state["command"]
+            cur_msg = state["ai_message"]
+            api_age_now = time.time() - state["last_api_time"]
+        if api_age_now > 4.0 and cur_cmd != prev_cmd:
+            # Speak the depth message for local navigation changes
+            if cur_cmd == "DANGER":
+                speak(depth_msg, force=True)
+            elif cur_cmd in ("STOP", "LEFT", "RIGHT"):
+                speak(depth_msg)
+            elif cur_cmd == "CLEAR" and prev_cmd in ("STOP", "DANGER", "LEFT", "RIGHT"):
+                speak("Path is clear. Continue forward.")
+            prev_cmd = cur_cmd
 
         # ── AI call (every AI_INTERVAL_SEC always) ───────────────────────────
         with _lock:
@@ -664,6 +782,12 @@ def main():
             with _lock:
                 state["force_api"] = True
             print("[KEY] Force AI call")
+        elif key in (ord('t'), ord('T')):
+            TTS_ENABLED = not TTS_ENABLED
+            status_txt = "ON" if TTS_ENABLED else "OFF"
+            print(f"[KEY] TTS: {status_txt}")
+            if TTS_ENABLED:
+                speak("Voice guidance enabled.", force=True)
 
     cap.release()
     cv2.destroyAllWindows()

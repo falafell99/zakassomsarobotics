@@ -240,7 +240,7 @@ async def analyze(request: AnalyzeRequest):
     # Step 3: Process image
     try:
         logger.info("Processing image (decode → resize → re-encode)")
-        processed_image = process_image(base64_image, max_width=800, max_height=600, quality=70)
+        processed_image = process_image(base64_image, max_width=1280, max_height=720, quality=85)
         image_size_kb = get_image_size_kb(processed_image)
         logger.info(f"Image processed. Size: {image_size_kb:.1f}KB")
     except Exception as e:

@@ -5,3 +5,5 @@ elevenlabs
 python-dotenv
 pillow
 requests
+opencv-python
+numpy

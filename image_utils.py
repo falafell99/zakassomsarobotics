@@ -36,7 +36,7 @@ def decode_base64_image(base64_string: str) -> Image.Image:
     return image
 
 
-def resize_image(image: Image.Image, max_width: int = 800, max_height: int = 600) -> Image.Image:
+def resize_image(image: Image.Image, max_width: int = 1280, max_height: int = 720) -> Image.Image:
     """
     Resize image to fit within max dimensions while maintaining aspect ratio.
 
@@ -70,13 +70,14 @@ def resize_image(image: Image.Image, max_width: int = 800, max_height: int = 600
     return resized_image
 
 
-def encode_image_to_base64(image: Image.Image, quality: int = 70) -> str:
+def encode_image_to_base64(image: Image.Image, quality: int = 85) -> str:
     """
     Encode a PIL Image to base64 JPEG string.
 
     Args:
         image: PIL Image object
-        quality: JPEG quality (1-100, lower = smaller file)
+        quality: JPEG quality (1-100).  85 gives a good balance between
+                 file size and visual quality for AI vision models.
 
     Returns:
         Base64 encoded JPEG string (without data URL prefix)
@@ -91,7 +92,7 @@ def encode_image_to_base64(image: Image.Image, quality: int = 70) -> str:
     return base64_string
 
 
-def process_image(base64_image: str, max_width: int = 800, max_height: int = 600, quality: int = 70) -> str:
+def process_image(base64_image: str, max_width: int = 1280, max_height: int = 720, quality: int = 85) -> str:
     """
     Full image processing pipeline: decode → resize → re-encode.
 

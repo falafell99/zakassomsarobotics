@@ -20,7 +20,7 @@ sys.path.append(
 )
 
 # Import project modules
-from image_utils import process_image
+from image_utils import process_image 
 from analyzer import analyze_image_with_vision
 
 # Configuration

@@ -23,6 +23,7 @@ _openai_client = None
 if OPENAI_API_KEY:
     try:
         from openai import AsyncOpenAI
+
         _openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
         print("[AI] ✅ OpenAI Vision (GPT-4o) ready")
     except ImportError:
@@ -31,7 +32,7 @@ if OPENAI_API_KEY:
         print(f"[AI] ❌ OpenAI init failed: {e}")
 else:
     print("[AI] ⚠️  OPENAI_API_KEY not set in .env")
-    print("[AI]    Add to .env:  OPENAI_API_KEY=sk-proj-...")
+    print("[AI]   Add to .env:  OPENAI_API_KEY=sk-proj-...")
 
 OPENAI_MODEL = "gpt-4o-mini"
 
@@ -116,33 +117,27 @@ async def analyze_image_with_vision(
     try:
         # Build payload according to OpenAI Vision spec
         messages = [
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT
-            },
+            {"role": "system", "content": SYSTEM_PROMPT},
             {
                 "role": "user",
                 "content": [
                     {
                         "type": "text",
-                        "text": f"Sensor distance hint: {distance:.1f}m. Output ONLY the JSON object."
+                        "text": f"Sensor distance hint: {distance:.1f}m. Output ONLY the JSON object.",
                     },
                     {
                         "type": "image_url",
                         "image_url": {
                             "url": f"data:image/jpeg;base64,{base64_image}",
-                            "detail": "low"
-                        }
-                    }
-                ]
-            }
+                            "detail": "low",
+                        },
+                    },
+                ],
+            },
         ]
 
         response = await _openai_client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=250,
-            temperature=0.1
+            model=model, messages=messages, max_tokens=250, temperature=0.1
         )
 
         content = response.choices[0].message.content or ""
@@ -206,7 +201,7 @@ async def test_openrouter_connection() -> bool:
         r = await _openai_client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=[{"role": "user", "content": "Reply OK only."}],
-            max_tokens=10
+            max_tokens=10,
         )
         return bool(r.choices[0].message.content)
     except Exception as e:

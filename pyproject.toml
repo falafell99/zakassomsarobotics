@@ -2,7 +2,7 @@
 name = "zakassomsarobotics"
 version = "0.1.0"
 description = "Smart glasses blind assistance system"
-authors = [{name = "Jaloliddin Ismailov", email = "unnobatroo@yandex.com"}]
+authors = [{name = "Jaloliddin Ismailov ", email = "unnobatroo@yandex.com"}]
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"

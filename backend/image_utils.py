@@ -19,6 +19,7 @@ def decode_base64_image(base64_string: str) -> Image.Image:
     Returns:
         PIL Image object
     """
+
     # Remove data URL prefix if present
     if "base64," in base64_string:
         base64_string = base64_string.split("base64,")[1]

@@ -25,7 +25,7 @@ CONTROLS (click OpenCV window first):
   H → toggle HOG person detection overlay
   T → toggle TTS on/off
   Q / ESC → quit
-"""
+""" 
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONFIGURATION

@@ -16,7 +16,6 @@ The system operates in three main layers:
 3. **AI Scene Understanding (FastAPI Backend)**: For complex scenes, the system occasionally captures a frame and sends it to the `backend/main.py` FastAPI server, which queries a Vision AI (via OpenRouter/Gemini) to generate a detailed scene description and determine safety.
 
 ## Hardware Setup
-
 The ESP32-S3 uses the following pins for feedback:
 - **Left Motor:** GPIO 38
 - **Right Motor:** GPIO 39

@@ -4,8 +4,8 @@
 #include <WiFi.h>
 
 // --- PRIVATE HOTSPOT CONFIGURATION ---
-const char *ap_ssid = "ESP32-S3-Camera"; // 👈 Your new private Wi-Fi name
-const char *ap_password = "formguest";   // 👈 The password to connect to it
+const char *ap_ssid = "zakaz-somsa-robotics"; // Your new private Wi-Fi name
+const char *ap_password = "rafaelgay";   // The password to connect to it
 
 // --- Smart Glasses Hardware Pins ---
 #define LEFT_MOTOR_PIN 38

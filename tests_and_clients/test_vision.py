@@ -25,7 +25,7 @@ def test_analyze_endpoint():
     # Test 1: Clear path (distance > 1.5m)
     print("\nTest 1: Distance 2.0m (should return CLEAR, no AI call)")
     response = requests.post(
-        "http://localhost:8000/analyze",
+        "http://localhost:8000/analyze", 
         json={"distance": 2.0, "image": "dummy_image_that_wont_be_used"},
     )
     print(f"Response: {response.json()}")

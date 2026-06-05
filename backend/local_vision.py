@@ -52,8 +52,11 @@ def load_yolo_model(model_name: str = "yolov8n.pt"):
         return None
 
     try:
-        logger.info(f"Loading YOLO model: {model_name}")
-        yolo_model = YOLO(model_name)
+        # Determine correct path for model in models/ directory
+        model_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models", model_name))
+        
+        logger.info(f"Loading YOLO model: {model_path}")
+        yolo_model = YOLO(model_path)
         logger.info("YOLO model loaded successfully")
         return yolo_model
     except Exception as e:

@@ -10,7 +10,12 @@ import datetime
 import io
 import asyncio
 import base64
+import sys
+import os
 from PIL import Image
+
+# Add backend directory to path for imports
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'backend')))
 
 # Import project modules
 from image_utils import process_image

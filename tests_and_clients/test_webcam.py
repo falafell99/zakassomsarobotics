@@ -31,7 +31,8 @@ CONTROLS (click OpenCV window first):
 #  CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 SERVER_URL      = "http://localhost:8000"
-CAMERA_INDEX    = 0
+CAMERA_INDEX    = "http://192.168.4.1/"  # Connect to ESP32 Access Point
+ESP32_URL       = "http://192.168.4.1"   # Base URL for hardware commands
 AI_INTERVAL_SEC = 3.0          # call AI every N seconds (always, not just on obstacle)
 JPEG_QUALITY    = 82
 WEBCAM_FOV_DEG  = 70.0         # typical laptop webcam
@@ -65,6 +66,10 @@ import threading
 import requests
 import sys
 import os
+
+# Add backend directory to path for imports
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'backend')))
+
 import math
 import numpy as np
 
@@ -87,7 +92,7 @@ import queue as _queue
 # ══════════════════════════════════════════════════════════════════════════════
 #  DEPTH ANYTHING V2  (monocular depth AI)
 # ══════════════════════════════════════════════════════════════════════════════
-_DEPTH_PATH = os.path.join(os.path.dirname(__file__), "depth_anything_v2_small.onnx")
+_DEPTH_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models", "depth_anything_v2_small.onnx"))
 _depth_session = None
 DEPTH_AI_OK = False
 
@@ -773,6 +778,8 @@ def main():
     HOG_EVERY   = 5   # HOG at ~6fps when main loop is 30fps
     DEPTH_EVERY = 3   # depth thread trigger (model itself throttles via flag)
     prev_cmd    = ""  # track command changes for TTS
+    prev_esp_cmd = "" # track command changes for ESP32 hardware feedback
+    last_esp_time = 0.0
 
     with _lock:
         state["status"]     = "IDLE"
@@ -904,6 +911,17 @@ def main():
             last_t = state["last_api_time"]
 
         cool = max(0.0, AI_INTERVAL_SEC - (time.time() - last_t))
+
+        # ── Send Command to ESP32 Hardware ────────────────────────────────────
+        now = time.time()
+        if cmd != prev_esp_cmd or (cmd not in ("CLEAR", "IDLE") and now - last_esp_time > 0.8):
+            prev_esp_cmd = cmd
+            last_esp_time = now
+            try:
+                # Fire and forget request to ESP32 to trigger buzzer/motor
+                threading.Thread(target=lambda c: requests.get(f"{ESP32_URL}/action?cmd={c}", timeout=0.5), args=(cmd,), daemon=True).start()
+            except Exception:
+                pass
 
         # ── Render ────────────────────────────────────────────────────────────
         display = frame.copy()

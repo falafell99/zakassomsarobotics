@@ -27,10 +27,8 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
 
@@ -38,7 +36,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Smart Glasses Backend",
     description="Backend server for blind-assistance smart glasses",
-    version="1.0.0"
+    version="1.0.0",
 )
 
 # Configuration
@@ -53,12 +51,14 @@ cooldown_lock = asyncio.Lock()
 # Request/Response models
 class AnalyzeRequest(BaseModel):
     """Request model for /analyze endpoint."""
+
     distance: float
     image: str  # base64 encoded JPEG
 
 
 class AnalyzeResponse(BaseModel):
     """Response model for /analyze endpoint."""
+
     command: str
     message: str
     obstacle: Optional[str] = "unknown"
@@ -114,29 +114,29 @@ async def startup_event():
     logger.info("=" * 60)
 
     # Check environment variables
-    openrouter_key = os.getenv("OPENROUTER_API_KEY")
+    openai_key = os.getenv("OPENAI_API_KEY")
     elevenlabs_key = os.getenv("ELEVENLABS_API_KEY")
 
-    if not openrouter_key:
-        logger.warning("OPENROUTER_API_KEY not set! AI analysis will not work.")
+    if not openai_key:
+        logger.warning("OPENAI_API_KEY not set! AI analysis will not work.")
     else:
-        logger.info("OPENROUTER_API_KEY is set")
+        logger.info("OPENAI_API_KEY is set")
 
     if not elevenlabs_key:
         logger.warning("ELEVENLABS_API_KEY not set! TTS will not work.")
     else:
         logger.info("ELEVENLABS_API_KEY is set")
 
-    # Test OpenRouter connection
-    if openrouter_key:
+    # Test OpenAI connection
+    if openai_key:
         try:
             test_result = await test_openrouter_connection()
             if test_result:
-                logger.info("OpenRouter API connection: OK")
+                logger.info("OpenAI API connection: OK")
             else:
-                logger.warning("OpenRouter API connection: FAILED")
+                logger.warning("OpenAI API connection: FAILED")
         except Exception as e:
-            logger.warning(f"OpenRouter API connection test error: {e}")
+            logger.warning(f"OpenAI API connection test error: {e}")
 
     logger.info(f"Server will run on port {SERVER_PORT}")
     logger.info(f"Cooldown period: {COOLDOWN_SECONDS} seconds")
@@ -156,17 +156,14 @@ async def root():
     return {
         "status": "online",
         "service": "Smart Glasses Backend",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
 
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat()
-    }
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)
@@ -202,12 +199,14 @@ async def analyze(request: AnalyzeRequest):
             command="CLEAR",
             message="Path is clear",
             obstacle="none",
-            timestamp=timestamp
+            timestamp=timestamp,
         )
 
     # Case: Distance < 0.3m → DANGER (ignore cooldown)
     if not should_call and command_if_not == "DANGER":
-        logger.info(f"Distance {distance:.2f}m < 0.3m → DANGER (emergency, skipping AI)")
+        logger.info(
+            f"Distance {distance:.2f}m < 0.3m → DANGER (emergency, skipping AI)"
+        )
         # Play danger audio
         try:
             await generate_and_play_audio("Danger! Stop immediately!")
@@ -218,7 +217,7 @@ async def analyze(request: AnalyzeRequest):
             command="DANGER",
             message="Danger! Stop immediately!",
             obstacle="too close",
-            timestamp=timestamp
+            timestamp=timestamp,
         )
 
     # Case: 0.3m <= distance <= 1.5m → Call AI
@@ -234,13 +233,15 @@ async def analyze(request: AnalyzeRequest):
             command="STOP",
             message="Please wait",
             obstacle="unknown",
-            timestamp=timestamp
+            timestamp=timestamp,
         )
 
     # Step 3: Process image
     try:
         logger.info("Processing image (decode → resize → re-encode)")
-        processed_image = process_image(base64_image, max_width=1280, max_height=720, quality=85)
+        processed_image = process_image(
+            base64_image, max_width=1280, max_height=720, quality=85
+        )
         image_size_kb = get_image_size_kb(processed_image)
         logger.info(f"Image processed. Size: {image_size_kb:.1f}KB")
     except Exception as e:
@@ -249,12 +250,12 @@ async def analyze(request: AnalyzeRequest):
             command="STOP",
             message="Image processing error",
             obstacle="unknown",
-            timestamp=timestamp
+            timestamp=timestamp,
         )
 
-    # Step 4: Call OpenRouter vision API
+    # Step 4: Call OpenAI vision API
     try:
-        logger.info("Calling OpenRouter vision API...")
+        logger.info("Calling OpenAI vision API...")
         analysis_result = await analyze_image_with_vision(processed_image, distance)
 
         direction = analysis_result.get("direction", "STOP")
@@ -288,10 +289,7 @@ async def analyze(request: AnalyzeRequest):
     logger.info("=" * 60)
 
     return AnalyzeResponse(
-        command=direction,
-        message=message,
-        obstacle=obstacle,
-        timestamp=timestamp
+        command=direction, message=message, obstacle=obstacle, timestamp=timestamp
     )
 
 
@@ -308,7 +306,7 @@ async def get_status():
         "cooldown_active": in_cooldown,
         "cooldown_remaining": max(0, COOLDOWN_SECONDS - elapsed) if in_cooldown else 0,
         "last_ai_call_seconds_ago": elapsed if last_ai_call_time > 0 else None,
-        "server_time": time.time()
+        "server_time": time.time(),
     }
 
 
@@ -326,5 +324,6 @@ async def reset_cooldown():
 
 if __name__ == "__main__":
     import uvicorn
+
     logger.info(f"Starting server on port {SERVER_PORT}")
     uvicorn.run(app, host="0.0.0.0", port=SERVER_PORT)

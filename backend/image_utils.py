@@ -36,7 +36,9 @@ def decode_base64_image(base64_string: str) -> Image.Image:
     return image
 
 
-def resize_image(image: Image.Image, max_width: int = 1280, max_height: int = 720) -> Image.Image:
+def resize_image(
+    image: Image.Image, max_width: int = 1280, max_height: int = 720
+) -> Image.Image:
     """
     Resize image to fit within max dimensions while maintaining aspect ratio.
 
@@ -92,7 +94,9 @@ def encode_image_to_base64(image: Image.Image, quality: int = 85) -> str:
     return base64_string
 
 
-def process_image(base64_image: str, max_width: int = 1280, max_height: int = 720, quality: int = 85) -> str:
+def process_image(
+    base64_image: str, max_width: int = 1280, max_height: int = 720, quality: int = 85
+) -> str:
     """
     Full image processing pipeline: decode → resize → re-encode.
 

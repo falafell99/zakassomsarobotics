@@ -15,7 +15,9 @@ import os
 from PIL import Image
 
 # Add backend directory to path for imports
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'backend')))
+sys.path.append(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend"))
+)
 
 # Import project modules
 from image_utils import process_image
@@ -67,7 +69,9 @@ async def analyze_frame(base64_image, distance):
         Dictionary with keys: direction, message, obstacle
     """
     # Process image using project's image_utils (resize + compress)
-    processed_b64 = process_image(base64_image, max_width=800, max_height=600, quality=70)
+    processed_b64 = process_image(
+        base64_image, max_width=800, max_height=600, quality=70
+    )
 
     # Call analyzer directly (this is an async function)
     result = await analyze_image_with_vision(processed_b64, distance)
@@ -78,7 +82,9 @@ def main():
     # Initialize webcam
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
-        print("ERROR: Could not open laptop webcam (index 0). Check camera permissions.")
+        print(
+            "ERROR: Could not open laptop webcam (index 0). Check camera permissions."
+        )
         return
 
     last_call_time = 0
@@ -134,6 +140,7 @@ def main():
                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     print(f"\n[{timestamp}] ANALYZER ERROR: {str(e)}")
                     import traceback
+
                     traceback.print_exc()
                     current_command = "ERROR"
                     current_message = ""

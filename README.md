@@ -50,6 +50,28 @@ python test_webcam.py
 ```
 3. A window will open showing the live feed, depth map, and detected obstacles. As obstacles appear, the script will automatically send commands back to the ESP32, triggering the motors or buzzers on your glasses!
 
+### Test Images
+
+The repository includes a set of test images you can use to experiment with the vision pipeline without a live camera.
+
+- **Location:** `tests_and_clients/test-imgs/`
+- Example images:
+  - `1.jpg` – a sample scene.
+  - `2.jpg` – another sample.
+  - `3.jpg` – another sample.
+
+You can run the client with a static image using:
+
+```bash
+cd tests_and_clients
+python test_webcam.py --image test-imgs/1.jpg
+```
+
+*(Make sure the script supports the `--image` argument; otherwise, modify `test_webcam.py` to load the image instead of the camera stream.)*
+
+The included `test_image_base64.txt` contains the base64 representation of the sample image, which can be used for API testing.
+
+
 **Controls inside the Client:**
 - `D` = Toggle Depth Map Overlay
 - `H` = Toggle HOG Person Detection Boxes

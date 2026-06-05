@@ -59,9 +59,7 @@ async def generate_and_play_audio(text: str, voice_name: str = "Rachel") -> bool
 
         # Generate audio using ElevenLabs
         audio = elevenlabs_client.text_to_speech.convert(
-            text=text,
-            voice_id=voice_name,
-            model_id="eleven_monolingual_v1"
+            text=text, voice_id=voice_name, model_id="eleven_monolingual_v1"
         )
 
         logger.info("Audio generated successfully, playing now...")
@@ -101,9 +99,7 @@ async def generate_audio_only(text: str, voice_name: str = "Rachel") -> Optional
 
         # Generate audio using ElevenLabs
         audio = elevenlabs_client.text_to_speech.convert(
-            text=text,
-            voice_id=voice_name,
-            model_id="eleven_monolingual_v1"
+            text=text, voice_id=voice_name, model_id="eleven_monolingual_v1"
         )
 
         logger.info("Audio generated successfully")

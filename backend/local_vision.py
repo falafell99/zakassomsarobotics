@@ -22,6 +22,7 @@ ultralytics_available = False
 # Try to import OpenCV and YOLO
 try:
     import cv2
+
     opencv_available = True
     logger.info("OpenCV imported successfully")
 except ImportError:
@@ -29,6 +30,7 @@ except ImportError:
 
 try:
     from ultralytics import YOLO
+
     ultralytics_available = True
     logger.info("Ultralytics (YOLO) imported successfully")
 except ImportError:
@@ -53,8 +55,10 @@ def load_yolo_model(model_name: str = "yolov8n.pt"):
 
     try:
         # Determine correct path for model in models/ directory
-        model_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models", model_name))
-        
+        model_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "models", model_name)
+        )
+
         logger.info(f"Loading YOLO model: {model_path}")
         yolo_model = YOLO(model_path)
         logger.info("YOLO model loaded successfully")
@@ -104,15 +108,17 @@ def detect_objects_yolo(image: Image.Image) -> List[Dict[str, Any]]:
                     class_id = int(box.cls[0].cpu().numpy())
                     class_name = result.names[class_id]
 
-                    detected_objects.append({
-                        "name": class_name,
-                        "confidence": float(confidence),
-                        "bbox": (int(x1), int(y1), int(x2), int(y2)),
-                        "center_x": int((x1 + x2) / 2),
-                        "center_y": int((y1 + y2) / 2),
-                        "width": int(x2 - x1),
-                        "height": int(y2 - y1)
-                    })
+                    detected_objects.append(
+                        {
+                            "name": class_name,
+                            "confidence": float(confidence),
+                            "bbox": (int(x1), int(y1), int(x2), int(y2)),
+                            "center_x": int((x1 + x2) / 2),
+                            "center_y": int((y1 + y2) / 2),
+                            "width": int(x2 - x1),
+                            "height": int(y2 - y1),
+                        }
+                    )
 
         logger.info(f"YOLO detected {len(detected_objects)} objects")
         return detected_objects
@@ -123,9 +129,7 @@ def detect_objects_yolo(image: Image.Image) -> List[Dict[str, Any]]:
 
 
 def analyze_obstacle_position(
-    detected_objects: List[Dict[str, Any]],
-    image_width: int,
-    distance: float
+    detected_objects: List[Dict[str, Any]], image_width: int, distance: float
 ) -> Dict[str, Any]:
     """
     Analyze detected objects and determine navigation command.
@@ -139,11 +143,7 @@ def analyze_obstacle_position(
         Dictionary with direction, message, obstacle
     """
     if not detected_objects:
-        return {
-            "direction": "CLEAR",
-            "message": "Path is clear",
-            "obstacle": "none"
-        }
+        return {"direction": "CLEAR", "message": "Path is clear", "obstacle": "none"}
 
     # Sort by confidence (highest first)
     detected_objects.sort(key=lambda x: x["confidence"], reverse=True)
@@ -167,7 +167,7 @@ def analyze_obstacle_position(
         return {
             "direction": "DANGER",
             "message": f"Danger! {obstacle_name} too close",
-            "obstacle": obstacle_name
+            "obstacle": obstacle_name,
         }
 
     # Determine direction based on obstacle position
@@ -190,17 +190,10 @@ def analyze_obstacle_position(
             direction = "STOP"
             message = f"Stop, {obstacle_name} ahead"
 
-    return {
-        "direction": direction,
-        "message": message,
-        "obstacle": obstacle_name
-    }
+    return {"direction": direction, "message": message, "obstacle": obstacle_name}
 
 
-async def analyze_image_local(
-    base64_image: str,
-    distance: float
-) -> Dict[str, Any]:
+async def analyze_image_local(base64_image: str, distance: float) -> Dict[str, Any]:
     """
     Analyze image using local YOLO + OpenCV.
 
@@ -216,7 +209,7 @@ async def analyze_image_local(
         return {
             "direction": "STOP",
             "message": "Vision system unavailable",
-            "obstacle": "unknown"
+            "obstacle": "unknown",
         }
 
     try:
@@ -224,6 +217,7 @@ async def analyze_image_local(
 
         # Decode base64 to PIL Image
         from image_utils import decode_base64_image
+
         image = decode_base64_image(base64_image)
         image_width = image.width
 
@@ -237,7 +231,7 @@ async def analyze_image_local(
             return {
                 "direction": "CLEAR",
                 "message": "Path is clear",
-                "obstacle": "none"
+                "obstacle": "none",
             }
 
         # Log detected objects
@@ -257,7 +251,7 @@ async def analyze_image_local(
         return {
             "direction": "STOP",
             "message": "Vision analysis error",
-            "obstacle": "unknown"
+            "obstacle": "unknown",
         }
 
 
@@ -272,5 +266,5 @@ def get_yolo_status() -> Dict[str, Any]:
         "opencv_available": opencv_available,
         "ultralytics_available": ultralytics_available,
         "yolo_model_loaded": yolo_model is not None,
-        "yolo_model_name": yolo_model.model_name if yolo_model else None
+        "yolo_model_name": yolo_model.model_name if yolo_model else None,
     }

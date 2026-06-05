@@ -1,5 +1,7 @@
 # Environment variables (contains API keys!)
 .env
+.venv/
+*.lock
 
 # Python
 __pycache__/

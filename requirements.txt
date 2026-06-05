@@ -1,9 +1,0 @@
-fastapi
-uvicorn[standard]
-openai
-elevenlabs
-python-dotenv
-pillow
-requests
-opencv-python
-numpy

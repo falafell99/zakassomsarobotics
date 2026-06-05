@@ -35,7 +35,7 @@ The ESP32-S3 uses the following pins for feedback:
 ### 2. Start the Backend Server (Optional, for advanced AI)
 To enable the Gemini Vision AI and text-to-speech features, run the backend server:
 ```bash
-pip install -r requirements.txt
+uv sync
 cd backend
 python main.py
 ```

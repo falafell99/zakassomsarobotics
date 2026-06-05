@@ -1,9 +1,10 @@
 fastapi
 uvicorn[standard]
-openai
-elevenlabs
 python-dotenv
+pydantic
 pillow
-requests
 opencv-python
 numpy
+requests
+elevenlabs
+ultralytics

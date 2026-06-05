@@ -12,6 +12,7 @@ def main():
     parser.add_argument("--batch", type=int, default=8)
     parser.add_argument("--device", default=None)
     parser.add_argument("--name", default="home_office_yolo")
+    parser.add_argument("--workers", type=int, default=2)
     args = parser.parse_args()
 
     model = YOLO(args.base)
@@ -22,7 +23,8 @@ def main():
         batch=args.batch,
         device=args.device,
         name=args.name,
-        patience=20,
+        workers=args.workers,
+        patience=15,
         cos_lr=True,
         close_mosaic=10,
         degrees=3.0,

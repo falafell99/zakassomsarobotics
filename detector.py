@@ -58,6 +58,8 @@ CATEGORIES = {
     "handrail": "structure",
     "backpack": "carry",
     "suitcase": "carry",
+    "box": "carry",
+    "pet": "pet",
     "dog": "pet",
     "cat": "pet",
 }

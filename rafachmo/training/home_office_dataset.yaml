@@ -1,0 +1,49 @@
+path: ../datasets/home_office
+train: images/train
+val: images/val
+
+names:
+  0: person
+  1: wall
+  2: door
+  3: doorway
+  4: stairs
+  5: chair
+  6: office_chair
+  7: desk
+  8: table
+  9: coffee_table
+  10: side_table
+  11: sofa
+  12: bed
+  13: cabinet
+  14: wardrobe
+  15: drawer
+  16: bookshelf
+  17: nightstand
+  18: monitor
+  19: laptop
+  20: keyboard
+  21: mouse
+  22: phone
+  23: printer
+  24: whiteboard
+  25: trash_can
+  26: plant
+  27: rug
+  28: floor_lamp
+  29: lamp
+  30: box
+  31: storage_box
+  32: laundry_basket
+  33: backpack
+  34: suitcase
+  35: pet
+  36: railing
+  37: handrail
+  38: staircase
+  39: step
+  40: cable
+  41: charger
+  42: paper
+  43: notebook

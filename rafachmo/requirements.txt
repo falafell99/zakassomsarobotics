@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+pydantic
+pillow
+opencv-python
+numpy
+requests
+elevenlabs
+ultralytics

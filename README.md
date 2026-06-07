@@ -1,4 +1,4 @@
-# rafachmo
+# Smart Glasses for Visally-Impaired people.
 
 MVP backend for blind-assistance smart glasses.
 

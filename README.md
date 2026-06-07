@@ -261,7 +261,7 @@ On every push and pull request it:
 First-time GitHub publish:
 
 ```bash
-cd /Users/ax1le/Downloads/zakassomsarobotics-lastbranch
+cd ../zakassomsarobotics-lastbranch
 git init
 git branch -M lastbranch
 git add .
